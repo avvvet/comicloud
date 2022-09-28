@@ -1,3 +1,10 @@
 ## comic cloud
 what ? comic cloud ! 
-"Yup ! you heard me right"
+"Yup ! you heard it right"
+
+## usage
+```
+go run . -httpPort 8080
+
+```
+

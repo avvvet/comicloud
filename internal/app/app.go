@@ -9,10 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 
+	"github.com/araddon/dateparse"
 	"github.com/common-nighthawk/go-figure"
+	"github.com/mmcdole/gofeed"
 	"github.com/savioxavier/termlink"
 	"go.uber.org/zap"
 )
@@ -37,7 +40,8 @@ type ComicData struct {
 	PicUrl      string
 	WebUrl      string
 	Title       string
-	PublishDate int64
+	PublishDate string
+	UnixEpoch   int64
 }
 
 /*
@@ -117,12 +121,42 @@ func (h *HttpServer) Index(w http.ResponseWriter, r *http.Request) {
 			y, _ := strconv.Atoi(xkcd.Year)
 			m, _ := strconv.Atoi(xkcd.Month)
 			d, _ := strconv.Atoi(xkcd.Day)
-			c.PublishDate = parseXkcdDate(y, m, d)
+			c.UnixEpoch = parseXkcdDate(y, m, d)
+			c.PublishDate = fmt.Sprintf("%s", time.Unix(c.UnixEpoch, 0).UTC())
 
 			//store
 			ComicStore = append(ComicStore, c)
-			//fmt.Printf("client: response body: %++v %s\n", xkcd, time.Unix(c.PublishDate, 0).UTC())
 		}
+
+		//fetch from rss feed
+		fp := gofeed.NewParser()
+		feed, _ := fp.ParseURL("https://feeds.feedburner.com/PoorlyDrawnLines")
+
+		for _, feedItem := range feed.Items {
+			//convert to common structure
+
+			c := &ComicData{
+				PicUrl: "", //to be updated to feedItem.Image.URL
+				WebUrl: feedItem.Link,
+				Title:  feedItem.Title,
+			}
+
+			//parse rss date
+			t, err := dateparse.ParseLocal(feedItem.Published)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			c.UnixEpoch = t.Unix()
+			c.PublishDate = fmt.Sprintf("%s", time.Unix(c.UnixEpoch, 0).UTC())
+
+			//sort
+			ComicStore = append(ComicStore, c)
+
+		}
+
+		//sort
+		sort.Slice(ComicStore, func(i, j int) bool { return ComicStore[i].PublishDate < ComicStore[j].PublishDate })
 
 		//response
 		data, _ := json.Marshal(struct {
@@ -154,9 +188,6 @@ func fetchRecentComic(apiURL string, limit int) ([]byte, error) {
 		fmt.Printf("client: error making http request: %s\n", err)
 		os.Exit(1)
 	}
-
-	fmt.Printf("client: got response!\n")
-	fmt.Printf("client: status code: %d\n", res.StatusCode)
 
 	resBody, err := ioutil.ReadAll(res.Body)
 	if err != nil {
